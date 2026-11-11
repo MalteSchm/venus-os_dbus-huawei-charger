@@ -1,0 +1,34 @@
+# Configuration for dbus-huawei-charger. Changes take effect after restarting the service:
+#   svc -t /service/dbus-huawei-charger
+[huawei]
+# CAN interface of the USB adapter. NEVER the interface of the BMS!
+# ("auto" picks the first interface served by the configured driver.)
+interface = can1
+# Kernel driver the interface must use. The service refuses to start (and does not touch
+# vecan-dbus) if the interface is served by another driver, e.g. after the can0/can1
+# numbering changed. Empty = no check.
+driver = gs_usb
+# Hard limits of the driver (the driver additionally applies the BMS limits)
+vmin = 48
+vmax = 55.2
+imax = 50
+deviceinstance = 290
+# Watchdog: seconds without a change of /Huawei/Heartbeat before switching off, 0 = off
+heartbeat_timeout = 0
+# Seconds between status lines in the log (measurements, temperatures, efficiency), 0 = off.
+# View with: tail -f /var/log/dbus-huawei-charger/current | tai64nlocal
+status_log_interval = 60
+
+# ---- Persistent PSU settings (optional) ----------------------------------------------------
+# A key that is missing or empty is NEVER written. A configured value is written every time
+# the PSU becomes reachable (driver start, PSU power-up, CAN reconnect), with up to 5 attempts.
+# Restart the service after editing.
+#
+# WARNING: the offline values are what the PSU uses when it receives no CAN frames, e.g.
+# when the driver or the GX is down. Keep offline_voltage BELOW your battery voltage, so the
+# PSU stays passive. A wrong value can make it charge without any BMS supervision.
+#offline_voltage = 48
+#offline_current = 0
+# Fan at full speed while the PSU is controlled (online) / without control (offline)
+#fan_online_full_speed = false
+#fan_offline_full_speed = false

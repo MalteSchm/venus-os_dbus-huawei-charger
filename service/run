@@ -1,0 +1,52 @@
+#!/bin/sh
+exec 2>&1
+cd /data/dbus-huawei-charger || exit 1
+
+cfg() { sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\([A-Za-z0-9_]*\).*/\1/p" config.ini 2>/dev/null | head -n 1; }
+
+IFACE=$(cfg interface)
+[ -n "$IFACE" ] || IFACE=can1
+# Kernel driver the interface must use (guards against the can0/can1 numbering changing)
+if grep -q '^[[:space:]]*driver[[:space:]]*=' config.ini 2>/dev/null; then DRIVER=$(cfg driver); else DRIVER=gs_usb; fi
+
+# "auto" = first CAN interface served by that driver
+if [ "$IFACE" = auto ]; then
+    IFACE=
+    for d in /sys/class/net/can*; do
+        case "$(readlink "$d/device/driver" 2>/dev/null)" in
+            */"${DRIVER:-gs_usb}") IFACE=$(basename "$d"); break ;;
+        esac
+    done
+    if [ -z "$IFACE" ]; then
+        echo "No CAN interface with driver ${DRIVER:-gs_usb} found, retrying in 5 s"
+        sleep 5
+        exit 1
+    fi
+fi
+
+# Safety check BEFORE touching anything: is this really the Huawei adapter?
+if [ -n "$DRIVER" ]; then
+    case "$(readlink "/sys/class/net/$IFACE/device/driver" 2>/dev/null)" in
+        */"$DRIVER") ;;
+        *)
+            echo "Interface $IFACE is not served by driver $DRIVER - refusing to start (wrong bus or adapter missing), retrying in 5 s"
+            sleep 5
+            exit 1
+            ;;
+    esac
+fi
+
+# vecan-dbus must not occupy the adapter's interface
+[ -d "/service/vecan-dbus.$IFACE" ] && svc -d "/service/vecan-dbus.$IFACE"
+
+# The PSU speaks CAN at 125 kbit/s. Nothing else configures this interface (vecan-dbus is
+# stopped above), so set it up here unless it is already up with the right bitrate.
+LINK=$(ip -details link show "$IFACE" 2>/dev/null)
+if ! echo "$LINK" | grep -q "state UP" || ! echo "$LINK" | grep -q "bitrate 125000 "; then
+    echo "Configuring $IFACE: 125000 bit/s"
+    ip link set "$IFACE" down
+    ip link set "$IFACE" type can bitrate 125000
+    ip link set "$IFACE" up
+fi
+
+exec python3 dbus-huawei-charger.py
